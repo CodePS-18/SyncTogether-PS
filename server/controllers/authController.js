@@ -1,16 +1,20 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
+const sendEmail = require("../utils/emailService");
 const User = require("../models/User");
 
-const generateToken = (userId) => {
+
+const generateToken = (userId, tokenVersion = 0) => {
   return jwt.sign(
-    { userId },
+    { userId, tokenVersion },
     process.env.JWT_SECRET,
     {
       expiresIn: process.env.JWT_EXPIRES_IN || "7d",
     }
   );
 };
+
 
 // POST /api/auth/register
 const register = async (req, res) => {
@@ -58,7 +62,10 @@ const register = async (req, res) => {
       password: hashedPassword,
     });
 
-    const token = generateToken(user._id.toString());
+    const token = generateToken(
+      user._id.toString(),
+      user.tokenVersion
+    );
 
     res.status(201).json({
       success: true,
@@ -146,6 +153,158 @@ const login = async (req, res) => {
   }
 };
 
+// POST /api/auth/forgot-password
+
+const forgotPassword = async (req, res) => {
+  try {
+    const email = req.body.email?.trim().toLowerCase();
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email address is required.",
+      });
+    }
+
+    const message =
+      "If an account exists with this email, password reset instructions will be sent.";
+
+    const user = await User.findOne({ email });
+
+    // Return the same response whether or not the account exists.
+    if (!user) {
+      return res.status(200).json({
+        success: true,
+        message,
+      });
+    }
+
+    const resetToken = crypto.randomBytes(32).toString("hex");
+
+    user.resetPasswordToken = crypto
+      .createHash("sha256")
+      .update(resetToken)
+      .digest("hex");
+
+    user.resetPasswordExpires = Date.now() + 15 * 60 * 1000;
+
+    await user.save();
+
+    const resetUrl =
+      `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
+
+    try {
+      await sendEmail({
+        to: user.email,
+        subject: "Reset your SyncTogether password",
+        text: `Use this link to reset your password. It expires in 15 minutes:\n\n${resetUrl}\n\nIf you did not request this, ignore this email.`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 520px; margin: auto;">
+            <h2>Reset your SyncTogether password</h2>
+            <p>We received a request to reset your password.</p>
+            <p>This link expires in <strong>15 minutes</strong>.</p>
+            <p>
+              <a href="${resetUrl}"
+                 style="display:inline-block;padding:12px 20px;background:#4f46e5;color:#fff;text-decoration:none;border-radius:6px;">
+                Reset Password
+              </a>
+            </p>
+            <p>If you did not request this, you can safely ignore this email.</p>
+          </div>
+        `,
+      });
+    } catch (emailError) {
+      console.error("Password reset email failed:", emailError.message);
+
+      user.resetPasswordToken = undefined;
+      user.resetPasswordExpires = undefined;
+      await user.save();
+
+      return res.status(500).json({
+        success: false,
+        message: "Unable to send the reset email. Please try again later.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message,
+    });
+  } catch (error) {
+    console.error("Forgot password error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to process password reset right now.",
+    });
+  }
+};
+
+
+// POST /api/auth/reset-password/:token
+const resetPassword = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    if (!token || !/^[a-f0-9]{64}$/i.test(token)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired reset link.",
+      });
+    }
+
+    if (typeof password !== "string" || password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters.",
+      });
+    }
+
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(token)
+      .digest("hex");
+
+    const user = await User.findOne({
+      resetPasswordToken: hashedToken,
+      resetPasswordExpires: { $gt: Date.now() },
+    }).select("+resetPasswordToken +resetPasswordExpires +password");
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired reset link.",
+      });
+    }
+
+
+    user.password = await bcrypt.hash(password, 12);
+
+    // Invalidate all previously issued JWTs
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
+
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+
+    await user.save();
+
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Password reset successful. Please sign in.",
+    });
+  } catch (error) {
+    console.error("Reset password error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to reset password right now.",
+    });
+  }
+};
+
 // GET /api/auth/me
 const getMe = async (req, res) => {
   try {
@@ -196,4 +355,6 @@ module.exports = {
   register,
   login,
   getMe,
+  forgotPassword,
+  resetPassword,
 };

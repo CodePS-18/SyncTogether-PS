@@ -1,3 +1,4 @@
+
 const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema(
@@ -27,6 +28,23 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: [true, "Password is required"],
       minlength: [6, "Password must be at least 6 characters"],
+      select: false,
+    },
+
+    // Invalidates previously issued JWTs after a password change
+    tokenVersion: {
+      type: Number,
+      default: 0,
+    },
+
+    // Password reset fields
+    resetPasswordToken: {
+      type: String,
+      select: false,
+    },
+
+    resetPasswordExpires: {
+      type: Date,
       select: false,
     },
 

@@ -11,6 +11,8 @@ import Dashboard from "./pages/Dashboard";
 import CreateRoom from "./pages/CreateRoom";
 import JoinRoom from "./pages/JoinRoom";
 import Room from "./pages/Room";
+import ResetPassword from "./pages/ResetPassword";
+import ForgotPassword from "./pages/ForgotPassword";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -72,6 +74,14 @@ function App() {
               <Room />
             </ProtectedRoute>
           }
+        />
+        <Route
+          path="/reset-password/:token"
+          element={<ResetPassword />}
+        />
+        <Route
+          path="/forgot-password"
+          element={<ForgotPassword />}
         />
       </Routes>
     </BrowserRouter>
