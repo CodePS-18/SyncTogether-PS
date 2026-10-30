@@ -57,12 +57,17 @@ const createRoom = async (req, res) => {
   }
 };
 
+
 const getRoom = async (req, res) => {
   try {
-    const { roomCode } = req.params;
+    const roomCode = String(req.params.roomCode || "")
+      .trim()
+      .toUpperCase();
 
     const room = await Room.findOne({
-      roomCode: roomCode.toUpperCase(),
+      roomCode,
+      isActive: true,
+      participants: req.user.userId,
     })
       .populate("host", "username email avatar")
       .populate("participants", "username avatar");
@@ -70,18 +75,18 @@ const getRoom = async (req, res) => {
     if (!room) {
       return res.status(404).json({
         success: false,
-        message: "Room not found",
+        message: "Room not found or access denied",
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       room,
     });
   } catch (error) {
     console.error("Get room error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Server error while fetching room",
     });
@@ -100,7 +105,8 @@ const joinRoom = async (req, res) => {
     }
 
     const room = await Room.findOne({
-      roomCode: roomCode.toUpperCase(),
+      roomCode: roomCode.trim().toUpperCase(),
+      isActive: true,
     });
 
     if (!room) {

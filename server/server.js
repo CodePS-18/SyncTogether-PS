@@ -17,6 +17,8 @@ const User = require("./models/User");
 const roomRoutes = require("./routes/roomRoutes");
 const authRoutes = require("./routes/authRoutes");
 const ChatMessage = require("./models/ChatMessage");
+const { setIO } = require("./utils/socket");
+
 // Get the unique online users currently connected to a room.
 const getOnlineParticipants = async (roomCode) => {
   const sockets = await io.in(roomCode).fetchSockets();
@@ -38,9 +40,10 @@ const io = new Server(server, {
     methods: ["GET", "POST"],
   },
 });
+setIO(io);
 
 // Authenticate Socket.IO connections
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   try {
     const token = socket.handshake.auth?.token;
 
@@ -49,10 +52,26 @@ io.use((socket, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    socket.userId = decoded.userId;
+
+    // Fetch the latest user session version from MongoDB.
+    const user = await User.findById(decoded.userId).select("tokenVersion");
+
+    if (!user) {
+      return next(new Error("User account not found"));
+    }
+
+    // Reject tokens issued before a password reset.
+    const tokenVersion = decoded.tokenVersion ?? 0;
+
+    if (tokenVersion !== (user.tokenVersion ?? 0)) {
+      return next(new Error("Session expired. Please sign in again."));
+    }
+
+    socket.userId = user._id.toString();
 
     next();
   } catch (error) {
+    console.error("Socket authentication error:", error.message);
     next(new Error("Invalid or expired token"));
   }
 });
@@ -102,9 +121,20 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+// Chat rate limiting: track messages per user
+const chatRateLimits = new Map();
+
+const CHAT_MESSAGE_LIMIT = 5;
+const CHAT_WINDOW_MS = 10 * 1000;
+
 // Socket.IO events
 io.on("connection", (socket) => {
   console.log(`User connected: ${socket.id}`);
+
+  // Keep all active connections of this user in a private room.
+  const userSocketRoom = `user:${socket.userId}`;
+
+  socket.join(userSocketRoom);
 
   // Join a room
   socket.on("room:join", async (roomCode, callback) => {
@@ -242,6 +272,29 @@ io.on("connection", (socket) => {
           message: "Message cannot exceed 1000 characters",
         });
       }
+
+      // Limit messages per user across all their connections
+      const now = Date.now();
+      const userId = socket.userId;
+
+      let rateLimit = chatRateLimits.get(userId);
+
+      if (!rateLimit || now - rateLimit.windowStart >= CHAT_WINDOW_MS) {
+        rateLimit = {
+          count: 0,
+          windowStart: now,
+        };
+      }
+
+      if (rateLimit.count >= CHAT_MESSAGE_LIMIT) {
+        return callback?.({
+          success: false,
+          message: "Too many messages. Please wait a few seconds.",
+        });
+      }
+
+      rateLimit.count += 1;
+      chatRateLimits.set(userId, rateLimit);
 
       // Confirm the socket joined this room.
       if (!socket.rooms.has(roomCode)) {
@@ -421,6 +474,14 @@ io.on("connection", (socket) => {
         });
       }
 
+      // Only the room host can change the shared video
+      if (room.host.toString() !== socket.userId.toString()) {
+        return callback?.({
+          success: false,
+          message: "Only the room host can change the video",
+        });
+      }
+
       room.media.url = parsedUrl.href;
       await room.save();
 
@@ -477,6 +538,8 @@ io.on("connection", (socket) => {
   });
   // End the Socket.IO connection handler.
 });
+
+module.exports = { io };
 
 // Start server after connecting to MongoDB
 const startServer = async () => {

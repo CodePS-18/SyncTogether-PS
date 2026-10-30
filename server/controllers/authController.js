@@ -3,7 +3,7 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const sendEmail = require("../utils/emailService");
 const User = require("../models/User");
-
+const { getIO } = require("../utils/socket");
 
 const generateToken = (userId, tokenVersion = 0) => {
   return jwt.sign(
@@ -130,7 +130,10 @@ const login = async (req, res) => {
     user.lastSeen = new Date();
     await user.save();
 
-    const token = generateToken(user._id.toString());
+    const token = generateToken(
+      user._id.toString(),
+      user.tokenVersion ?? 0
+    );
 
     res.json({
       success: true,
@@ -278,10 +281,9 @@ const resetPassword = async (req, res) => {
       });
     }
 
-
     user.password = await bcrypt.hash(password, 12);
 
-    // Invalidate all previously issued JWTs
+    // Invalidate all previously issued JWTs.
     user.tokenVersion = (user.tokenVersion || 0) + 1;
 
     user.resetPasswordToken = undefined;
@@ -289,7 +291,18 @@ const resetPassword = async (req, res) => {
 
     await user.save();
 
-    await user.save();
+    // Disconnect all active Socket.IO sessions for this user.
+    const io = getIO();
+
+    if (io) {
+      const userSocketRoom = `user:${user._id.toString()}`;
+
+      io.in(userSocketRoom).disconnectSockets(true);
+
+      console.log(
+        `All Socket.IO sessions disconnected for user: ${user._id}`
+      );
+    }
 
     return res.status(200).json({
       success: true,

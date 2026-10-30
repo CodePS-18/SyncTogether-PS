@@ -1,11 +1,17 @@
 
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import {
+  Link,
+  useNavigate,
+  useLocation,
+} from "react-router-dom";
 
 import { useAuth } from "../context/AuthContext";
 
 const Login = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+
   const { login } = useAuth();
 
   const [formData, setFormData] = useState({
@@ -15,6 +21,8 @@ const Login = () => {
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const sessionExpired = location.state?.sessionExpired;
 
   const handleChange = (event) => {
     setFormData({
@@ -31,7 +39,7 @@ const Login = () => {
 
     try {
       await login(formData);
-      navigate("/dashboard");
+      navigate("/dashboard", { replace: true });
     } catch (error) {
       setError(
         error.response?.data?.message ||
@@ -45,6 +53,7 @@ const Login = () => {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4">
       <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-xl">
+
         <div className="mb-8 text-center">
           <h1 className="text-3xl font-bold text-white">
             SyncTogether
@@ -54,6 +63,12 @@ const Login = () => {
             Sign in to continue
           </p>
         </div>
+
+        {sessionExpired && (
+          <div className="mb-5 rounded-lg border border-amber-700 bg-amber-950/40 px-4 py-3 text-sm text-amber-300">
+            Your session has expired. Please sign in again.
+          </div>
+        )}
 
         {error && (
           <div className="mb-5 rounded-lg border border-red-800 bg-red-950/50 px-4 py-3 text-sm text-red-300">
