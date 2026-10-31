@@ -1,3 +1,4 @@
+
 import {
   Navigate,
   Route,
@@ -12,6 +13,7 @@ import JoinRoom from "./pages/JoinRoom";
 import Room from "./pages/Room";
 import ResetPassword from "./pages/ResetPassword";
 import ForgotPassword from "./pages/ForgotPassword";
+import Profile from "./pages/Profile";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -20,23 +22,12 @@ function App() {
     <Routes>
       <Route
         path="/"
-        element={
-          <Navigate
-            to="/dashboard"
-            replace
-          />
-        }
+        element={<Navigate to="/dashboard" replace />}
       />
 
-      <Route
-        path="/login"
-        element={<Login />}
-      />
+      <Route path="/login" element={<Login />} />
 
-      <Route
-        path="/register"
-        element={<Register />}
-      />
+      <Route path="/register" element={<Register />} />
 
       <Route
         path="/dashboard"
@@ -73,10 +64,21 @@ function App() {
           </ProtectedRoute>
         }
       />
+
+      <Route
+        path="/profile"
+        element={
+          <ProtectedRoute>
+            <Profile />
+          </ProtectedRoute>
+        }
+      />
+
       <Route
         path="/reset-password/:token"
         element={<ResetPassword />}
       />
+
       <Route
         path="/forgot-password"
         element={<ForgotPassword />}

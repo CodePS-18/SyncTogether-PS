@@ -12,6 +12,8 @@ const {
   getMe,
   forgotPassword,
   resetPassword,
+  updateProfile,
+  changePassword,
 } = require("../controllers/authController");
 
 const {
@@ -35,5 +37,8 @@ router.post(
   passwordResetLimiter,
   resetPassword
 );
+
+router.patch("/update-profile", protect, updateProfile);
+router.patch("/change-password", protect, changePassword);
 
 module.exports = router;

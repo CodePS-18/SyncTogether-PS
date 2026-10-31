@@ -78,6 +78,51 @@ const VideoPlayer = ({ roomCode, initialVideoUrl = "" }) => {
     const handlePause = () => emitPlayback("pause");
     const handleSeeked = () => emitPlayback("seek");
 
+    // Restore playback state saved in MongoDB.
+    let pendingPlaybackState = null;
+
+    const applySavedPlaybackState = async (data) => {
+      const player = videoRef.current;
+
+      if (!data || !player) return;
+
+      // Wait until video metadata is loaded.
+      if (player.readyState < 1) {
+        pendingPlaybackState = data;
+        return;
+      }
+
+      applyingRemoteUpdate = true;
+
+      try {
+        if (
+          typeof data.currentTime === "number" &&
+          Number.isFinite(data.currentTime) &&
+          Math.abs(player.currentTime - data.currentTime) > 1
+        ) {
+          player.currentTime = data.currentTime;
+        }
+
+        if (data.isPlaying && player.paused) {
+          await player.play();
+        } else if (!data.isPlaying && !player.paused) {
+          player.pause();
+        }
+      } catch (error) {
+        console.error("Saved playback restoration failed:", error);
+      } finally {
+        applyingRemoteUpdate = false;
+      }
+    };
+
+    const handleMetadataLoaded = () => {
+      if (pendingPlaybackState) {
+        const savedState = pendingPlaybackState;
+        pendingPlaybackState = null;
+        applySavedPlaybackState(savedState);
+      }
+    };
+
     const handleVideoChanged = (data) => {
       const changedUrl = data?.videoUrl;
 
@@ -91,6 +136,13 @@ const VideoPlayer = ({ roomCode, initialVideoUrl = "" }) => {
     socket.on("video:sync", handleRemotePlayback);
     socket.on("video:changed", handleVideoChanged);
 
+    socket.on("video:playback-state", applySavedPlaybackState);
+
+    video.addEventListener(
+      "loadedmetadata",
+      handleMetadataLoaded
+    );
+
     video.addEventListener("play", handlePlay);
     video.addEventListener("pause", handlePause);
     video.addEventListener("seeked", handleSeeked);
@@ -98,6 +150,16 @@ const VideoPlayer = ({ roomCode, initialVideoUrl = "" }) => {
     return () => {
       socket.off("video:sync", handleRemotePlayback);
       socket.off("video:changed", handleVideoChanged);
+
+      socket.off(
+        "video:playback-state",
+        applySavedPlaybackState
+      );
+
+      video.removeEventListener(
+        "loadedmetadata",
+        handleMetadataLoaded
+      );
 
       video.removeEventListener("play", handlePlay);
       video.removeEventListener("pause", handlePause);

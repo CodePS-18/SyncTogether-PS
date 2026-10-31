@@ -16,6 +16,7 @@ const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const navigate = useNavigate();
+
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -32,7 +33,7 @@ export const AuthProvider = ({ children }) => {
     });
   }, [navigate]);
 
-  // Check the user's authentication status.
+  // Check authentication status.
   useEffect(() => {
     const loadUser = async () => {
       const token = authService.getToken();
@@ -56,7 +57,7 @@ export const AuthProvider = ({ children }) => {
     loadUser();
   }, [handleSessionExpired]);
 
-  // Listen for expired or invalid sessions.
+  // Listen for expired sessions.
   useEffect(() => {
     const handleExpiredSession = () => {
       handleSessionExpired();
@@ -75,24 +76,52 @@ export const AuthProvider = ({ children }) => {
     };
   }, [handleSessionExpired]);
 
-  // Login user.
+  // LOGIN
   const login = async (credentials) => {
     const data = await authService.login(credentials);
     setUser(data.user);
     return data;
   };
 
-  // Register user.
+  // REGISTER
   const register = async (userData) => {
     const data = await authService.register(userData);
     setUser(data.user);
     return data;
   };
 
-  // Logout user.
+  // UPDATE PROFILE
+  const updateProfile = async (profileData) => {
+    const data = await authService.updateProfile(profileData);
+
+    setUser(data.user);
+
+    return data;
+  };
+
+  // CHANGE PASSWORD
+  const changePassword = async (passwordData) => {
+    const data = await authService.changePassword(passwordData);
+
+    // Password change invalidates all existing tokens.
+    authService.logout();
+    setUser(null);
+
+    navigate("/login", {
+      replace: true,
+      state: {
+        passwordChanged: true,
+      },
+    });
+
+    return data;
+  };
+
+  // LOGOUT
   const logout = () => {
     authService.logout();
     setUser(null);
+    navigate("/login", { replace: true });
   };
 
   const value = {
@@ -100,6 +129,8 @@ export const AuthProvider = ({ children }) => {
     loading,
     login,
     register,
+    updateProfile,
+    changePassword,
     logout,
     handleSessionExpired,
     isAuthenticated: !!user,

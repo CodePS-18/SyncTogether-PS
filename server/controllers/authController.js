@@ -364,10 +364,216 @@ const getMe = async (req, res) => {
   }
 };
 
+// PATCH /api/auth/update-profile
+const updateProfile = async (req, res) => {
+  try {
+    const { username, avatar } = req.body;
+
+    const userId = req.user.userId;
+
+    const updates = {};
+
+    // Validate username
+    if (username !== undefined) {
+      const trimmedUsername = username.trim();
+
+      if (trimmedUsername.length < 3 || trimmedUsername.length > 30) {
+        return res.status(400).json({
+          success: false,
+          message: "Username must be between 3 and 30 characters.",
+        });
+      }
+
+      // Check whether username is already taken
+      const existingUser = await User.findOne({
+        username: trimmedUsername,
+        _id: { $ne: userId },
+      });
+
+      if (existingUser) {
+        return res.status(409).json({
+          success: false,
+          message: "This username is already taken.",
+        });
+      }
+
+      updates.username = trimmedUsername;
+    }
+
+    // Validate avatar URL
+    if (avatar !== undefined) {
+      if (typeof avatar !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid avatar URL.",
+        });
+      }
+
+      const trimmedAvatar = avatar.trim();
+
+      if (trimmedAvatar.length > 2048) {
+        return res.status(400).json({
+          success: false,
+          message: "Avatar URL is too long.",
+        });
+      }
+
+      if (trimmedAvatar) {
+        try {
+          const parsedUrl = new URL(trimmedAvatar);
+
+          if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+            throw new Error("Invalid protocol");
+          }
+        } catch {
+          return res.status(400).json({
+            success: false,
+            message: "Please provide a valid HTTP or HTTPS avatar URL.",
+          });
+        }
+      }
+
+      updates.avatar = trimmedAvatar;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No profile changes provided.",
+      });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { $set: updates },
+      {
+        new: true,
+        runValidators: true,
+      }
+    ).select("username email avatar isOnline lastSeen");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile updated successfully.",
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        avatar: user.avatar,
+        isOnline: user.isOnline,
+        lastSeen: user.lastSeen,
+      },
+    });
+  } catch (error) {
+    console.error("Update profile error:", error);
+
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "This username is already taken.",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to update profile.",
+    });
+  }
+};
+
+// PATCH /api/auth/change-password
+const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Current password and new password are required.",
+      });
+    }
+
+    if (
+      typeof currentPassword !== "string" ||
+      typeof newPassword !== "string" ||
+      newPassword.length < 6
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be at least 6 characters.",
+      });
+    }
+
+    if (currentPassword === newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be different from current password.",
+      });
+    }
+
+    const user = await User.findById(req.user.userId).select("+password");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    const isPasswordValid = await bcrypt.compare(
+      currentPassword,
+      user.password
+    );
+
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: "Current password is incorrect.",
+      });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 12);
+
+    // Invalidate all previously issued JWT tokens.
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
+
+    await user.save();
+
+    // Disconnect all active Socket.IO sessions.
+    const io = getIO();
+
+    if (io) {
+      const userSocketRoom = `user:${user._id.toString()}`;
+      io.in(userSocketRoom).disconnectSockets(true);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Password changed successfully. Please sign in again.",
+    });
+  } catch (error) {
+    console.error("Change password error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to change password right now.",
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
   getMe,
   forgotPassword,
   resetPassword,
+  updateProfile,
+  changePassword,
 };
