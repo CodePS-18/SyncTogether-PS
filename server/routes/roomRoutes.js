@@ -3,6 +3,7 @@ const express = require("express");
 
 const {
   createRoom,
+  getMyRooms,
   getRoom,
   joinRoom,
   updateRoomName,
@@ -21,6 +22,9 @@ const router = express.Router();
 
 // Create a new room
 router.post("/", protect, createRoom);
+
+// Get all rooms created or joined by the logged-in user
+router.get("/my-rooms", protect, getMyRooms);
 
 // Join an existing room with rate limiting
 router.post("/join", protect, roomJoinLimiter, joinRoom);
